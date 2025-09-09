@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Repartidor — Lyon</title>
+  <link rel="stylesheet" href="/skype.css">
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-messaging-compat.js"></script>
+</head>
+<body class="sk-body">
+  <header class="sk-header">
+    <h1 class="sk-title">Repartidor — Mis pedidos</h1>
+    <button id="logout" class="sk-btn sk-btn-ghost">Cerrar sesión</button>
+  </header>
+
+  <main class="sk-card">
+    <ul id="list"></ul>
+  </main>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyAegBnufw0k1qcfEFdtZKKsg_4OKa4lHIU",
+      authDomain: "lyon-c8c09.firebaseapp.com",
+      projectId: "lyon-c8c09",
+      storageBucket: "lyon-c8c09.firebasestorage.app",
+      messagingSenderId: "122924191899",
+      appId: "1:122924191899:web:45d96dcb99d1524072f63e",
+      measurementId: "G-CP672D9PEZ"
+    };
+    const VAPID_KEY = "BLk5Ch7s2RphNb9PprgROpitJpYVilZqVsbSmrUegR1Fkr8idOyx5_roPP_90fwguRJbhGt9N8Oubr6Kkm8SvHw";
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+    const messaging = firebase.messaging();
+
+    document.getElementById('logout').addEventListener('click', ()=>auth.signOut().then(()=>location.href='/index.html'));
+
+    auth.onAuthStateChanged(async user=>{
+      if(!user) return location.href = '/index.html';
+      // registrar token FCM
+      try {
+        const perm = await Notification.requestPermission();
+        if(perm === 'granted'){
+          const token = await messaging.getToken({vapidKey: VAPID_KEY});
+          if(token) await db.collection('fcmTokens').doc(user.uid).set({uid:user.uid, token, role:'repartidor', updatedAt: firebase.firestore.FieldValue.serverTimestamp()});
+        }
+      } catch(e){ console.warn(e); }
+
+      db.collection('pedidos').where('asignadoA','==',user.uid).orderBy('creado','desc').onSnapshot(snap=>{
+        const list = document.getElementById('list'); list.innerHTML = '';
+        snap.forEach(d=>{
+          const p = d.data();
+          const li = document.createElement('li'); li.className = 'sk-item';
+          li.innerHTML = `<b>${p.detalle}</b><br> Origen: ${p.origen} ? Destino: ${p.destino} <br> Estado: ${p.estado}
+            <div class="sk-actions">
+              <button class="sk-btn" onclick="updateState('${d.id}','en_curso')">En curso</button>
+              <button class="sk-btn sk-btn-ghost" onclick="updateState('${d.id}','finalizado')">Finalizar</button>
+            </div>`;
+          list.appendChild(li);
+        });
+      });
+    });
+
+    window.updateState = async (id, estado) => {
+      await db.collection('pedidos').doc(id).update({ estado });
+    };
+  </script>
+</body>
+</html>

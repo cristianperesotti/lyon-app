@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Lyon - Login</title>
+  <link rel="stylesheet" href="/skype.css">
+  <!-- Firebase compat (sin npm) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-messaging-compat.js"></script>
+</head>
+<body class="sk-body">
+  <main class="sk-card">
+    <h1 class="sk-title">LYON — Plataforma de envíos</h1>
+
+    <div class="sk-row">
+      <label>Correo</label>
+      <input id="email" type="email" placeholder="pepito@pizzeria.com" />
+    </div>
+
+    <div class="sk-row">
+      <label>Contraseña</label>
+      <input id="password" type="password" placeholder="contraseña" />
+    </div>
+
+    <div class="sk-row">
+      <label>Quiero registrarme como</label>
+      <select id="role">
+        <option value="comercio">Comercio</option>
+        <option value="repartidor">Repartidor</option>
+        <option value="admin">Administrador</option>
+      </select>
+    </div>
+
+    <div class="sk-actions">
+      <button id="btnRegister" class="sk-btn">Registrar</button>
+      <button id="btnLogin" class="sk-btn sk-btn-ghost">Ingresar</button>
+    </div>
+
+    <p class="sk-small">Si sos admin, creá la cuenta o pedile al admin principal que te habilite.</p>
+  </main>
+
+  <script>
+    // === Config Firebase (ya me diste esto) ===
+    const firebaseConfig = {
+      apiKey: "AIzaSyAegBnufw0k1qcfEFdtZKKsg_4OKa4lHIU",
+      authDomain: "lyon-c8c09.firebaseapp.com",
+      projectId: "lyon-c8c09",
+      storageBucket: "lyon-c8c09.firebasestorage.app",
+      messagingSenderId: "122924191899",
+      appId: "1:122924191899:web:45d96dcb99d1524072f63e",
+      measurementId: "G-CP672D9PEZ"
+    };
+    // VAPID que me diste (web push public key)
+    const VAPID_KEY = "BLk5Ch7s2RphNb9PprgROpitJpYVilZqVsbSmrUegR1Fkr8idOyx5_roPP_90fwguRJbhGt9N8Oubr6Kkm8SvHw";
+
+    // Inicializar Firebase
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+    const messaging = firebase.messaging();
+
+    // Helpers
+    async function saveUserProfile(uid, email, role){
+      await db.collection('users').doc(uid).set({ email, role }, { merge: true });
+    }
+
+    async function registerFcmTokenFor(uid, role){
+      try {
+        const permission = await Notification.requestPermission();
+        if(permission !== 'granted') return;
+        const token = await messaging.getToken({vapidKey: VAPID_KEY});
+        if(token){
+          await db.collection('fcmTokens').doc(uid).set({
+            uid, token, role, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        }
+      } catch (e) {
+        console.warn('No se pudo registrar token FCM:', e);
+      }
+    }
+
+    // Register
+    document.getElementById('btnRegister').addEventListener('click', async ()=>{
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const role = document.getElementById('role').value;
+      if(!email || !password){ alert('Completá email y contraseña'); return; }
+      try {
+        const uc = await auth.createUserWithEmailAndPassword(email, password);
+        await saveUserProfile(uc.user.uid, email, role === 'admin' ? 'admin' : role); // guardamos rol (admin si lo creó)
+        // Registrar token FCM para notificaciones (si acepta)
+        await registerFcmTokenFor(uc.user.uid, role);
+        alert('Registrado. Ahora ingresá con tus credenciales.');
+      } catch(e){
+        alert('Error: ' + e.message);
+      }
+    });
+
+    // Login
+    document.getElementById('btnLogin').addEventListener('click', async ()=>{
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      if(!email || !password){ alert('Completá email y contraseña'); return; }
+      try {
+        const uc = await auth.signInWithEmailAndPassword(email, password);
+        const uid = uc.user.uid;
+        const snap = await db.collection('users').doc(uid).get();
+        const role = snap.exists && snap.data().role ? snap.data().role : null;
+        // Guardar token en fcmTokens
+        await registerFcmTokenFor(uid, role || 'unknown');
+
+        if(role === 'admin') window.location.href = '/admin.html';
+        else if(role === 'comercio') window.location.href = '/comercio.html';
+        else if(role === 'repartidor') window.location.href = '/repartidor.html';
+        else {
+          alert('Tu rol no está asignado. Contactá al administrador.');
+        }
+      } catch(e){
+        alert('Error: ' + e.message);
+      }
+    });
+
+  </script>
+</body>
+</html>
