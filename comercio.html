@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Comercio — Lyon</title>
+  <link rel="stylesheet" href="/skype.css">
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-messaging-compat.js"></script>
+</head>
+<body class="sk-body">
+  <header class="sk-header">
+    <h1 class="sk-title">Comercio — Mi panel</h1>
+    <button id="logout" class="sk-btn sk-btn-ghost">Cerrar sesión</button>
+  </header>
+
+  <main class="sk-card">
+    <label>Dirección origen (tu local)</label>
+    <input id="origen" placeholder="Av. Siempreviva 742">
+
+    <label>Destino</label>
+    <input id="destino" placeholder="Calle Falsa 123">
+
+    <label>Detalle</label>
+    <textarea id="detalle" placeholder="Ej: Caja x2, sin cebolla"></textarea>
+
+    <div class="sk-actions">
+      <button id="send" class="sk-btn">Enviar pedido</button>
+    </div>
+
+    <h3>Mis pedidos</h3>
+    <ul id="myList"></ul>
+  </main>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyAegBnufw0k1qcfEFdtZKKsg_4OKa4lHIU",
+      authDomain: "lyon-c8c09.firebaseapp.com",
+      projectId: "lyon-c8c09",
+      storageBucket: "lyon-c8c09.firebasestorage.app",
+      messagingSenderId: "122924191899",
+      appId: "1:122924191899:web:45d96dcb99d1524072f63e",
+      measurementId: "G-CP672D9PEZ"
+    };
+    const VAPID_KEY = "BLk5Ch7s2RphNb9PprgROpitJpYVilZqVsbSmrUegR1Fkr8idOyx5_roPP_90fwguRJbhGt9N8Oubr6Kkm8SvHw";
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+    const messaging = firebase.messaging();
+
+    document.getElementById('logout').addEventListener('click', ()=>auth.signOut().then(()=>location.href='/index.html'));
+
+    auth.onAuthStateChanged(user=>{
+      if(!user) return location.href = '/index.html';
+      // si el usuario no tiene perfil, avisar
+      db.collection('users').doc(user.uid).get().then(doc=>{
+        if(!doc.exists){ alert('Tu cuenta no está configurada. Contactá al admin.'); }
+      });
+      // registrar token fcm
+      (async ()=> {
+        try {
+          const perm = await Notification.requestPermission();
+          if(perm === 'granted'){
+            const token = await messaging.getToken({vapidKey: VAPID_KEY});
+            if(token) await db.collection('fcmTokens').doc(user.uid).set({uid:user.uid, token, role:'comercio', updatedAt: firebase.firestore.FieldValue.serverTimestamp()});
+          }
+        } catch(e){ console.warn(e); }
+      })();
+    });
+
+    document.getElementById('send').addEventListener('click', async ()=>{
+      const origen = document.getElementById('origen').value.trim();
+      const destino = document.getElementById('destino').value.trim();
+      const detalle = document.getElementById('detalle').value.trim();
+      if(!origen || !destino){ alert('Completá origen y destino'); return; }
+      const user = auth.currentUser;
+      const docRef = await db.collection('pedidos').add({
+        origen, destino, detalle,
+        comercio: user.email, comercioId: user.uid,
+        estado: 'pendiente', creado: firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      // Obtener tokens de admins para notificarles (lectura pública de fcmTokens)
+      const toksSnap = await db.collection('fcmTokens').where('role','==','admin').get();
+      const tokens = toksSnap.docs.map(d => d.data().token).filter(Boolean);
+      if(tokens.length){
+        // Llamar función Netlify para enviar push (no exponemos server key en cliente)
+        try {
+          await fetch('/.netlify/functions/sendPush', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+              tokens,
+              notification: { title: 'Nuevo pedido', body: `${user.email} ? ${destino}`, data: { pedidoId: docRef.id } }
+            })
+          });
+        } catch(e){ console.warn('Error al notificar admins:', e); }
+      }
+
+      alert('Pedido creado: ' + docRef.id);
+      document.getElementById('destino').value = '';
+      document.getElementById('detalle').value = '';
+    });
+
+    // Mostrar mis pedidos
+    const myList = document.getElementById('myList');
+    auth.onAuthStateChanged(user => {
+      if(!user) return;
+      db.collection('pedidos').where('comercioId','==', user.uid).orderBy('creado','desc').onSnapshot(snap=>{
+        myList.innerHTML = '';
+        snap.forEach(d=>{
+          const p = d.data();
+          const li = document.createElement('li');
+          li.className = 'sk-item';
+          li.innerHTML = `<b>${p.detalle}</b> ? ${p.destino} <br> Estado: ${p.estado}`;
+          myList.appendChild(li);
+        });
+      });
+    });
+  </script>
+</body>
+</html>

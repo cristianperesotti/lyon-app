@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin — Lyon</title>
+  <link rel="stylesheet" href="/skype.css">
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-messaging-compat.js"></script>
+</head>
+<body class="sk-body">
+  <header class="sk-header">
+    <h1 class="sk-title">Admin — Panel</h1>
+    <button id="logout" class="sk-btn sk-btn-ghost">Cerrar sesión</button>
+  </header>
+
+  <section class="sk-card">
+    <div class="sk-controls">
+      <label>Filtro estado</label>
+      <select id="filterEstado">
+        <option value="all">Todos</option>
+        <option value="pendiente">pendiente</option>
+        <option value="asignado">asignado</option>
+        <option value="en_curso">en_curso</option>
+        <option value="finalizado">finalizado</option>
+      </select>
+      <input id="q" placeholder="Buscar por dirección o detalle..." />
+      <button id="refresh" class="sk-btn">Refrescar</button>
+    </div>
+
+    <div id="tableWrap"></div>
+  </section>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyAegBnufw0k1qcfEFdtZKKsg_4OKa4lHIU",
+      authDomain: "lyon-c8c09.firebaseapp.com",
+      projectId: "lyon-c8c09",
+      storageBucket: "lyon-c8c09.firebasestorage.app",
+      messagingSenderId: "122924191899",
+      appId: "1:122924191899:web:45d96dcb99d1524072f63e",
+      measurementId: "G-CP672D9PEZ"
+    };
+    const VAPID_KEY = "BLk5Ch7s2RphNb9PprgROpitJpYVilZqVsbSmrUegR1Fkr8idOyx5_roPP_90fwguRJbhGt9N8Oubr6Kkm8SvHw";
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+    const messaging = firebase.messaging();
+
+    document.getElementById('logout').addEventListener('click', ()=> auth.signOut().then(()=>location.href='/index.html'));
+
+    // security: ensure admin
+    auth.onAuthStateChanged(async user => {
+      if(!user) return location.href = '/index.html';
+      const udoc = await db.collection('users').doc(user.uid).get();
+      const role = udoc.exists ? udoc.data().role : null;
+      if(role !== 'admin'){ alert('Acceso denegado'); auth.signOut(); return; }
+      // registrar token admin
+      try{
+        const perm = await Notification.requestPermission();
+        if(perm === 'granted'){
+          const token = await messaging.getToken({vapidKey: VAPID_KEY});
+          if(token) await db.collection('fcmTokens').doc(user.uid).set({uid:user.uid, token, role:'admin', updatedAt: firebase.firestore.FieldValue.serverTimestamp()});
+        }
+      }catch(e){ console.warn(e); }
+    });
+
+    // Render tabla pedidos
+    const tableWrap = document.getElementById('tableWrap');
+    const filterEstado = document.getElementById('filterEstado');
+    const qInput = document.getElementById('q');
+    const refreshBtn = document.getElementById('refresh');
+
+    let allPedidos = [];
+
+    db.collection('pedidos').orderBy('creado','desc').onSnapshot(snap=>{
+      allPedidos = snap.docs.map(d=>({ id: d.id, data: d.data() }));
+      render();
+    });
+
+    async function render(){
+      const estado = filterEstado.value;
+      const q = (qInput.value || '').toLowerCase();
+      const rows = allPedidos.filter(p=>{
+        if(estado !== 'all' && (p.data.estado || 'pendiente') !== estado) return false;
+        const hay = (p.id + ' ' + (p.data.origen||'') + ' ' + (p.data.destino||'') + ' ' + (p.data.detalle||'')).toLowerCase();
+        return hay.includes(q);
+      });
+
+      let html = `<table class="sk-table"><thead><tr><th>ID</th><th>Origen</th><th>Destino</th><th>Detalle</th><th>Estado</th><th>Comercio</th><th>Repartidor</th><th>Acciones</th></tr></thead><tbody>`;
+      for(const r of rows){
+        const d = r.data;
+        html += `<tr>
+          <td>${r.id}</td>
+          <td>${escapeHtml(d.origen||'')}</td>
+          <td>${escapeHtml(d.destino||'')}</td>
+          <td>${escapeHtml(d.detalle||'')}</td>
+          <td>${escapeHtml(d.estado||'pendiente')}</td>
+          <td>${escapeHtml(d.comercio||'')}</td>
+          <td>${escapeHtml(d.asignadoA||'')}</td>
+          <td>
+            <button class="sk-btn" onclick="assignPrompt('${r.id}')">Asignar</button>
+            <button class="sk-btn" onclick="changeState('${r.id}','en_curso')">En curso</button>
+            <button class="sk-btn sk-btn-ghost" onclick="changeState('${r.id}','finalizado')">Finalizar</button>
+          </td>
+        </tr>`;
+      }
+      html += `</tbody></table>`;
+      tableWrap.innerHTML = html;
+    }
+
+    window.changeState = async (id, estado) => {
+      await db.collection('pedidos').doc(id).update({ estado });
+    };
+
+    window.assignPrompt = async (id) => {
+      const email = prompt('Email del repartidor a asignar:');
+      if(!email) return;
+      const snap = await db.collection('users').where('email','==',email).where('role','==','repartidor').get();
+      if(snap.empty){ alert('No se encontró repartidor'); return; }
+      const uid = snap.docs[0].id;
+      await db.collection('pedidos').doc(id).update({ asignadoA: uid, estado: 'asignado' });
+
+      // opcional: notificar al repartidor via push mediante función Netlify (lo veremos luego)
+      // llamamos a la función con el token del repartidor (lo obtenemos de fcmTokens collection)
+      const tokenDoc = await db.collection('fcmTokens').doc(uid).get();
+      if(tokenDoc.exists){
+        const token = tokenDoc.data().token;
+        // Llamada a función sendPush en Netlify (no publica el server key en el navegador)
+        try {
+          await fetch('/.netlify/functions/sendPush', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tokens: [token],
+              notification: { title: 'Te asignaron un pedido', body: `Pedido ${id} - ${ (d=>d)(await db.collection('pedidos').doc(id).get()).data().destino }` }
+            })
+          });
+        } catch(e){ console.warn('Error al notificar al repartidor:', e); }
+      }
+    };
+
+    refreshBtn.addEventListener('click', render);
+    filterEstado.addEventListener('change', render);
+    qInput.addEventListener('input', render);
+
+    function escapeHtml(str){ if(!str) return ''; return String(str).replace(/[&<>"'`]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;'}[s])); }
+  </script>
+</body>
+</html>

@@ -1,0 +1,67 @@
+/* skype.css - paleta: negro / dorado / blanco */
+:root{
+  --bg:#0b0b0b;
+  --card:#0f0f0f;
+  --gold:#cda434;
+  --white:#f5f5f5;
+  --muted:#bdbdbd;
+  --accent:#e6d8a0;
+  --radius:10px;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+}
+
+*{box-sizing:border-box}
+body.sk-body{
+  background: linear-gradient(180deg, #070707 0%, #0b0b0b 100%);
+  color:var(--white);
+  margin:0;
+  min-height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+}
+
+.sk-card{
+  width:100%;
+  max-width:980px;
+  background:var(--card);
+  border-radius:var(--radius);
+  padding:20px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+  color:var(--white);
+}
+
+.sk-title{font-size:20px;margin:0 0 12px 0;color:var(--gold)}
+.sk-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.sk-row{margin-bottom:12px}
+label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+input,textarea,select{
+  width:100%;
+  padding:10px 12px;
+  border-radius:8px;
+  border:1px solid rgba(255,255,255,0.06);
+  background:rgba(255,255,255,0.02);
+  color:var(--white);
+  outline:none;
+  font-size:14px;
+}
+textarea{min-height:80px;resize:vertical}
+
+.sk-actions{display:flex;gap:8px;margin-top:12px}
+.sk-btn{
+  background:var(--gold);
+  color:#0b0b0b;
+  padding:8px 12px;
+  border-radius:8px;
+  border:none;
+  cursor:pointer;
+  font-weight:600;
+  box-shadow: 0 4px 18px rgba(205,164,52,0.12);
+}
+.sk-btn-ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--white)}
+
+.sk-small{color:var(--muted);font-size:13px;margin-top:10px}
+.sk-table{width:100%;border-collapse:collapse}
+.sk-table th, .sk-table td{padding:10px;border-bottom:1px solid rgba(255,255,255,0.04);font-size:13px}
+.sk-item{padding:10px;border-radius:8px;background:rgba(255,255,255,0.02);margin-bottom:8px}
